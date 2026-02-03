@@ -802,37 +802,4 @@ Weekly Report:
 
 ---
 
-## 🆘 Getting Help
 
-**Need assistance?**
-
-1. **Documentation**: Re-read relevant sections
-2. **Community**: GitHub Discussions
-3. **Issues**: Report bugs on GitHub
-4. **Email**: sohail@mtabtechnology.com
-5. **Zoho Support**: support.zoho.com
-
----
-
-## 🎉 Congratulations!
-
-You've successfully set up the Shopify-Zoho Refund Automation!
-
-**Next Steps:**
-- Monitor first few executions
-- Gather team feedback
-- Document any custom changes
-- Share your experience
-- Star ⭐ the GitHub repository
-
----
-
-<div align="center">
-
-**Setup Guide v1.0**
-
-Created by [Sohail (Kanishk)](https://github.com/Sohail-crdriod)
-
-[Back to README](./README.md) • [Report Issue](https://github.com/Sohail-crdriod/shopify-zoho-refund-automation/issues)
-
-</div>
