@@ -20,15 +20,7 @@
 - [Tech Stack](#-tech-stack)
 - [Results & Impact](#-results--impact)
 - [Installation](#-installation)
-- [Configuration](#-configuration)
-- [How It Works](#-how-it-works)
-- [Code Structure](#-code-structure)
-- [API Integration](#-api-integration)
-- [Screenshots](#-screenshots)
-- [Future Enhancements](#-future-enhancements)
-- [Contributing](#-contributing)
-- [License](#-license)
-- [About](#-about)
+
 
 ---
 
