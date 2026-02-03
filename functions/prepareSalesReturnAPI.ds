@@ -1,0 +1,568 @@
+map prepareSalesReturnAPI(string salesorder_id, string organization_id, list refund_line_items, list sales_order_line_items)
+{
+	// Initialize variables
+	lineItems = List();
+	itemsProcessed = List();
+	totalRefundAmount = 0;
+	itemsSkipped = List();
+	
+	info "=== SALES RETURN PROCESSING INITIATED ===";
+	info "Sales Order ID: " + salesorder_id;
+	info "Organization ID: " + organization_id;
+	info "Refund Items Count: " + refund_line_items.size();
+	
+	// Process each refunded item from Shopify
+	for each refundedItem in refund_line_items
+	{
+		// Extract Shopify line item details
+		shopifyLineItem = refundedItem.get("line_item");
+		shopifySKU = shopifyLineItem.get("sku");
+		refundQuantity = refundedItem.get("quantity");
+		
+		info "";
+		info "--- Processing Refund Item ---";
+		info "Shopify SKU: " + shopifySKU;
+		info "Requested Refund Quantity: " + refundQuantity;
+		
+		// Find matching item in Zoho sales order by SKU
+		itemFound = false;
+		for each soItem in sales_order_line_items
+		{
+			zohoSKU = soItem.get("sku");
+			
+			if(shopifySKU == zohoSKU)
+			{
+				itemFound = true;
+				
+				// Extract item details
+				itemName = soItem.get("name");
+				itemRate = soItem.get("rate");
+				qtyOrdered = soItem.get("quantity");
+				qtyShipped = soItem.get("quantity_shipped");
+				qtyInvoiced = soItem.get("quantity_invoiced");
+				qtyManuallyFulfilled = soItem.get("quantity_manuallyfulfilled");
+				qtyReturned = soItem.get("quantity_returned");
+				
+				info "Match Found: " + itemName;
+				info "Quantity Ordered: " + qtyOrdered;
+				info "Quantity Shipped: " + qtyShipped;
+				info "Quantity Invoiced: " + qtyInvoiced;
+				info "Quantity Manually Fulfilled: " + qtyManuallyFulfilled;
+				info "Quantity Already Returned: " + qtyReturned;
+				
+				// Determine base quantity (priority: invoiced > manually fulfilled > shipped > ordered)
+				quantityBase = qtyInvoiced;
+				baseQtyType = "Invoiced";
+				
+				if(quantityBase == null || quantityBase == 0)
+				{
+					if(qtyManuallyFulfilled != null && qtyManuallyFulfilled > 0)
+					{
+						quantityBase = qtyManuallyFulfilled;
+						baseQtyType = "Manually Fulfilled";
+					}
+					else if(qtyShipped != null && qtyShipped > 0)
+					{
+						quantityBase = qtyShipped;
+						baseQtyType = "Shipped";
+					}
+					else
+					{
+						quantityBase = qtyOrdered;
+						baseQtyType = "Ordered";
+					}
+				}
+				
+				// Handle null values
+				if(qtyReturned == null)
+				{
+					qtyReturned = 0;
+				}
+				
+				// Calculate available quantity for return
+				availableToReturn = quantityBase - qtyReturned;
+				
+				info "Base Quantity Used (" + baseQtyType + "): " + quantityBase;
+				info "Available to Return: " + availableToReturn;
+				
+				// Validate if item can be returned
+				if(availableToReturn <= 0)
+				{
+					info "⚠️ Item Skipped - No quantity available to return";
+					
+					// Track skipped item
+					skippedItem = Map();
+					skippedItem.put("name", itemName);
+					skippedItem.put("sku", shopifySKU);
+					skippedItem.put("rate", itemRate);
+					skippedItem.put("quantity_ordered", qtyOrdered);
+					skippedItem.put("quantity_returned", qtyReturned);
+					skippedItem.put("quantity_requested", refundQuantity);
+					skippedItem.put("available", availableToReturn);
+					skippedItem.put("reason", "All items already returned");
+					itemsSkipped.add(skippedItem);
+				}
+				else
+				{
+					// Calculate actual return quantity (cap at available)
+					returnQty = refundQuantity;
+					if(returnQty > availableToReturn)
+					{
+						returnQty = availableToReturn;
+						info "⚠️ Refund quantity capped to available quantity: " + returnQty;
+					}
+					
+					info "✓ Final Return Quantity: " + returnQty;
+					
+					// Calculate refund amount
+					refundAmount = itemRate * returnQty;
+					totalRefundAmount = totalRefundAmount + refundAmount;
+					
+					// Add to line items for API call
+					itemMap = Map();
+					itemMap.put("item_id", soItem.get("item_id"));
+					itemMap.put("salesorder_item_id", soItem.get("line_item_id"));
+					itemMap.put("quantity", returnQty);
+					lineItems.add(itemMap);
+					
+					// Track processed item for email
+					processedItem = Map();
+					processedItem.put("name", itemName);
+					processedItem.put("sku", shopifySKU);
+					processedItem.put("rate", itemRate);
+					processedItem.put("quantity_ordered", qtyOrdered);
+					processedItem.put("quantity_returned", qtyReturned);
+					processedItem.put("quantity_returning", returnQty);
+					processedItem.put("remaining_after_return", availableToReturn - returnQty);
+					processedItem.put("refund_amount", refundAmount);
+					processedItem.put("base_qty_type", baseQtyType);
+					itemsProcessed.add(processedItem);
+					
+					info "✓ Item added to return successfully";
+				}
+				
+				break;
+			}
+		}
+		
+		// Handle SKU not found in sales order
+		if(!itemFound)
+		{
+			info "❌ SKU not found in sales order: " + shopifySKU;
+			
+			skippedItem = Map();
+			skippedItem.put("name", "Unknown Item");
+			skippedItem.put("sku", shopifySKU);
+			skippedItem.put("rate", "N/A");
+			skippedItem.put("quantity_ordered", "N/A");
+			skippedItem.put("quantity_returned", "N/A");
+			skippedItem.put("quantity_requested", refundQuantity);
+			skippedItem.put("available", "N/A");
+			skippedItem.put("reason", "SKU not found in sales order");
+			itemsSkipped.add(skippedItem);
+		}
+	}
+	
+	info "";
+	info "=== PROCESSING SUMMARY ===";
+	info "Items to Return: " + lineItems.size();
+	info "Items Skipped: " + itemsSkipped.size();
+	info "Total Refund Amount: ₹" + totalRefundAmount;
+	
+	// Check if there are any items to return
+	if(lineItems.size() == 0)
+	{
+		info "❌ No items available to return";
+		
+		errorResponse = Map();
+		errorResponse.put("code", 0);
+		errorResponse.put("message", "No items available to return. All items already returned or not found.");
+		errorResponse.put("skipped", true);
+		errorResponse.put("status", "no_items");
+		
+		return errorResponse;
+	}
+	
+	// Prepare sales return payload
+	salesReturnMap = Map();
+	salesReturnMap.put("salesorder_id", salesorder_id);
+	salesReturnMap.put("date", zoho.currentdate.toString("yyyy-MM-dd"));
+	salesReturnMap.put("line_items", lineItems);
+	salesReturnMap.put("notes", "Automated Shopify Refund - Processed via Zoho Flow");
+	
+	info "";
+	info "=== CREATING SALES RETURN ===";
+	info "Payload: " + salesReturnMap;
+	
+	// Create sales return via Zoho Inventory API
+	try
+	{
+		response = zoho.inventory.createRecord("salesreturns", organization_id, salesReturnMap, "zoho_inventory");
+		
+		info "API Response Code: " + response.get("code");
+		
+		// Check if API call was successful
+		if(response.get("code") == 0 || response.containsKey("salesreturn"))
+		{
+			info "✓ Sales Return Created Successfully";
+			
+			// Extract return details from response
+			salesreturnData = response.get("salesreturn");
+			returnNumber = salesreturnData.get("salesreturn_number");
+			returnId = salesreturnData.get("salesreturn_id");
+			returnDate = salesreturnData.get("date");
+			returnStatus = salesreturnData.get("salesreturn_status");
+			customerName = salesreturnData.get("customer_name");
+			salesOrderNumber = salesreturnData.get("salesorder_number");
+			
+			info "Return Number: " + returnNumber;
+			info "Return ID: " + returnId;
+			info "Status: " + returnStatus;
+			
+			// ====================================================================
+			// BUILD PROFESSIONAL HTML EMAIL
+			// ====================================================================
+			
+			htmlEmail = "<!DOCTYPE html>";
+			htmlEmail = htmlEmail + "<html lang='en'>";
+			htmlEmail = htmlEmail + "<head>";
+			htmlEmail = htmlEmail + "<meta charset='UTF-8'>";
+			htmlEmail = htmlEmail + "<meta name='viewport' content='width=device-width, initial-scale=1.0'>";
+			htmlEmail = htmlEmail + "<title>Sales Return Created - " + returnNumber + "</title>";
+			htmlEmail = htmlEmail + "<style>";
+			htmlEmail = htmlEmail + "* { margin: 0; padding: 0; box-sizing: border-box; }";
+			htmlEmail = htmlEmail + "body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background-color: #f4f7f9; color: #333; line-height: 1.6; padding: 20px; }";
+			htmlEmail = htmlEmail + ".email-container { max-width: 800px; margin: 0 auto; background: #ffffff; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); overflow: hidden; }";
+			
+			// Header styles
+			htmlEmail = htmlEmail + ".email-header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 40px 30px; text-align: center; }";
+			htmlEmail = htmlEmail + ".email-header h1 { font-size: 28px; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.5px; }";
+			htmlEmail = htmlEmail + ".email-header p { font-size: 16px; opacity: 0.95; font-weight: 400; }";
+			htmlEmail = htmlEmail + ".success-icon { width: 60px; height: 60px; background: rgba(255,255,255,0.2); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; font-size: 32px; }";
+			
+			// Alert banner for skipped items
+			htmlEmail = htmlEmail + ".alert-banner { background: #fff3cd; border-left: 4px solid #ffc107; padding: 16px 24px; margin: 0; }";
+			htmlEmail = htmlEmail + ".alert-banner h3 { color: #856404; font-size: 16px; margin-bottom: 6px; font-weight: 600; }";
+			htmlEmail = htmlEmail + ".alert-banner p { color: #856404; font-size: 14px; margin: 0; }";
+			
+			// Content area
+			htmlEmail = htmlEmail + ".email-content { padding: 0; }";
+			
+			// Info cards
+			htmlEmail = htmlEmail + ".info-section { padding: 30px; background: #f8f9fa; }";
+			htmlEmail = htmlEmail + ".info-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }";
+			htmlEmail = htmlEmail + ".info-card { background: white; border-radius: 8px; padding: 16px 20px; border-left: 4px solid #667eea; }";
+			htmlEmail = htmlEmail + ".info-card .label { font-size: 12px; text-transform: uppercase; color: #6c757d; font-weight: 600; letter-spacing: 0.5px; margin-bottom: 4px; }";
+			htmlEmail = htmlEmail + ".info-card .value { font-size: 18px; font-weight: 700; color: #2d3748; }";
+			htmlEmail = htmlEmail + ".info-card .value.highlight { color: #667eea; }";
+			htmlEmail = htmlEmail + ".status-badge { display: inline-block; padding: 6px 14px; border-radius: 20px; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }";
+			htmlEmail = htmlEmail + ".status-badge.success { background: #d4edda; color: #155724; }";
+			
+			// Section headers
+			htmlEmail = htmlEmail + ".section-header { padding: 24px 30px 16px; border-bottom: 2px solid #e9ecef; }";
+			htmlEmail = htmlEmail + ".section-header h2 { font-size: 20px; font-weight: 700; color: #2d3748; display: flex; align-items: center; }";
+			htmlEmail = htmlEmail + ".section-header h2::before { content: ''; width: 4px; height: 24px; background: #667eea; margin-right: 12px; border-radius: 2px; }";
+			
+			// Table styles
+			htmlEmail = htmlEmail + ".items-table { width: 100%; border-collapse: collapse; }";
+			htmlEmail = htmlEmail + ".items-table thead { background: #f8f9fa; }";
+			htmlEmail = htmlEmail + ".items-table th { padding: 14px 16px; text-align: left; font-size: 12px; font-weight: 700; color: #495057; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #dee2e6; }";
+			htmlEmail = htmlEmail + ".items-table th.text-center { text-align: center; }";
+			htmlEmail = htmlEmail + ".items-table th.text-right { text-align: right; }";
+			htmlEmail = htmlEmail + ".items-table td { padding: 16px; border-bottom: 1px solid #e9ecef; font-size: 14px; color: #495057; }";
+			htmlEmail = htmlEmail + ".items-table td.text-center { text-align: center; }";
+			htmlEmail = htmlEmail + ".items-table td.text-right { text-align: right; font-family: 'Courier New', monospace; }";
+			htmlEmail = htmlEmail + ".items-table tbody tr:hover { background: #f8f9fa; }";
+			htmlEmail = htmlEmail + ".items-table tbody tr:last-child td { border-bottom: none; }";
+			htmlEmail = htmlEmail + ".item-name { font-weight: 600; color: #2d3748; margin-bottom: 4px; }";
+			htmlEmail = htmlEmail + ".item-sku { font-size: 12px; color: #6c757d; font-family: 'Courier New', monospace; }";
+			htmlEmail = htmlEmail + ".qty-badge { display: inline-block; padding: 4px 10px; background: #e7f3ff; color: #0366d6; font-weight: 600; border-radius: 12px; font-size: 13px; }";
+			htmlEmail = htmlEmail + ".qty-badge.returning { background: #667eea; color: white; }";
+			htmlEmail = htmlEmail + ".status-indicator { display: inline-block; padding: 5px 12px; border-radius: 12px; font-size: 11px; font-weight: 600; text-transform: uppercase; }";
+			htmlEmail = htmlEmail + ".status-indicator.complete { background: #d4edda; color: #155724; }";
+			htmlEmail = htmlEmail + ".status-indicator.partial { background: #cfe2ff; color: #084298; }";
+			
+			// Summary section
+			htmlEmail = htmlEmail + ".summary-section { padding: 24px 30px; background: #f8f9fa; border-top: 2px solid #e9ecef; }";
+			htmlEmail = htmlEmail + ".summary-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; align-items: start; }";
+			htmlEmail = htmlEmail + ".summary-item { display: flex; justify-content: space-between; align-items: center; padding: 12px 0; }";
+			htmlEmail = htmlEmail + ".summary-item.total { border-top: 2px solid #dee2e6; padding-top: 16px; margin-top: 8px; }";
+			htmlEmail = htmlEmail + ".summary-label { font-size: 14px; color: #6c757d; font-weight: 500; }";
+			htmlEmail = htmlEmail + ".summary-value { font-size: 16px; font-weight: 700; color: #2d3748; font-family: 'Courier New', monospace; }";
+			htmlEmail = htmlEmail + ".summary-item.total .summary-label { font-size: 16px; color: #2d3748; font-weight: 700; }";
+			htmlEmail = htmlEmail + ".summary-item.total .summary-value { font-size: 22px; color: #667eea; }";
+			htmlEmail = htmlEmail + ".summary-stats { background: white; padding: 20px; border-radius: 8px; border: 2px solid #e9ecef; }";
+			htmlEmail = htmlEmail + ".stat-row { display: flex; justify-content: space-between; padding: 8px 0; }";
+			htmlEmail = htmlEmail + ".stat-label { font-size: 13px; color: #6c757d; }";
+			htmlEmail = htmlEmail + ".stat-value { font-size: 15px; font-weight: 700; color: #2d3748; }";
+			
+			// Skipped items section
+			htmlEmail = htmlEmail + ".skipped-section { background: #fff9e6; padding: 24px 30px; border-top: 2px solid #ffe69c; }";
+			htmlEmail = htmlEmail + ".skipped-table { width: 100%; margin-top: 16px; }";
+			htmlEmail = htmlEmail + ".skipped-table th { background: #fff3cd; padding: 12px; text-align: left; font-size: 12px; font-weight: 600; color: #856404; text-transform: uppercase; }";
+			htmlEmail = htmlEmail + ".skipped-table td { padding: 14px 12px; border-bottom: 1px solid #ffe69c; font-size: 13px; color: #856404; }";
+			htmlEmail = htmlEmail + ".reason-text { font-style: italic; color: #d97706; }";
+			
+			// Footer
+			htmlEmail = htmlEmail + ".email-footer { padding: 30px; text-align: center; background: #2d3748; color: #a0aec0; }";
+			htmlEmail = htmlEmail + ".email-footer p { font-size: 13px; margin: 4px 0; }";
+			htmlEmail = htmlEmail + ".email-footer a { color: #667eea; text-decoration: none; font-weight: 600; }";
+			htmlEmail = htmlEmail + ".email-footer a:hover { text-decoration: underline; }";
+			htmlEmail = htmlEmail + ".divider { height: 1px; background: #4a5568; margin: 16px 0; }";
+			
+			// Responsive
+			htmlEmail = htmlEmail + "@media only screen and (max-width: 600px) {";
+			htmlEmail = htmlEmail + ".info-grid { grid-template-columns: 1fr; }";
+			htmlEmail = htmlEmail + ".summary-grid { grid-template-columns: 1fr; }";
+			htmlEmail = htmlEmail + ".items-table { font-size: 12px; }";
+			htmlEmail = htmlEmail + ".items-table th, .items-table td { padding: 10px 8px; }";
+			htmlEmail = htmlEmail + "}";
+			htmlEmail = htmlEmail + "</style>";
+			htmlEmail = htmlEmail + "</head>";
+			htmlEmail = htmlEmail + "<body>";
+			
+			htmlEmail = htmlEmail + "<div class='email-container'>";
+			
+			// Header
+			htmlEmail = htmlEmail + "<div class='email-header'>";
+			htmlEmail = htmlEmail + "<div class='success-icon'>✓</div>";
+			htmlEmail = htmlEmail + "<h1>Sales Return Created Successfully</h1>";
+			htmlEmail = htmlEmail + "<p>Return " + returnNumber + " has been processed and recorded in your inventory system</p>";
+			htmlEmail = htmlEmail + "</div>";
+			
+			// Alert banner for skipped items (if any)
+			if(itemsSkipped.size() > 0)
+			{
+				htmlEmail = htmlEmail + "<div class='alert-banner'>";
+				htmlEmail = htmlEmail + "<h3>⚠️ Partial Return Processed</h3>";
+				htmlEmail = htmlEmail + "<p>Some items could not be returned. See details below.</p>";
+				htmlEmail = htmlEmail + "</div>";
+			}
+			
+			// Info section
+			htmlEmail = htmlEmail + "<div class='email-content'>";
+			htmlEmail = htmlEmail + "<div class='info-section'>";
+			htmlEmail = htmlEmail + "<div class='info-grid'>";
+			
+			htmlEmail = htmlEmail + "<div class='info-card'>";
+			htmlEmail = htmlEmail + "<div class='label'>Return Number</div>";
+			htmlEmail = htmlEmail + "<div class='value highlight'>" + returnNumber + "</div>";
+			htmlEmail = htmlEmail + "</div>";
+			
+			htmlEmail = htmlEmail + "<div class='info-card'>";
+			htmlEmail = htmlEmail + "<div class='label'>Sales Order</div>";
+			htmlEmail = htmlEmail + "<div class='value'>" + salesOrderNumber + "</div>";
+			htmlEmail = htmlEmail + "</div>";
+			
+			htmlEmail = htmlEmail + "<div class='info-card'>";
+			htmlEmail = htmlEmail + "<div class='label'>Customer</div>";
+			htmlEmail = htmlEmail + "<div class='value'>" + customerName + "</div>";
+			htmlEmail = htmlEmail + "</div>";
+			
+			htmlEmail = htmlEmail + "<div class='info-card'>";
+			htmlEmail = htmlEmail + "<div class='label'>Return Date</div>";
+			htmlEmail = htmlEmail + "<div class='value'>" + zoho.currentdate.toString("dd MMM yyyy") + "</div>";
+			htmlEmail = htmlEmail + "</div>";
+			
+			htmlEmail = htmlEmail + "<div class='info-card'>";
+			htmlEmail = htmlEmail + "<div class='label'>Status</div>";
+			htmlEmail = htmlEmail + "<div class='value'><span class='status-badge success'>" + returnStatus + "</span></div>";
+			htmlEmail = htmlEmail + "</div>";
+			
+			htmlEmail = htmlEmail + "<div class='info-card'>";
+			htmlEmail = htmlEmail + "<div class='label'>Return ID</div>";
+			htmlEmail = htmlEmail + "<div class='value'>" + returnId + "</div>";
+			htmlEmail = htmlEmail + "</div>";
+			
+			htmlEmail = htmlEmail + "</div>";
+			htmlEmail = htmlEmail + "</div>";
+			
+			// Items returned section
+			htmlEmail = htmlEmail + "<div class='section-header'>";
+			htmlEmail = htmlEmail + "<h2>Items Returned</h2>";
+			htmlEmail = htmlEmail + "</div>";
+			
+			htmlEmail = htmlEmail + "<table class='items-table'>";
+			htmlEmail = htmlEmail + "<thead>";
+			htmlEmail = htmlEmail + "<tr>";
+			htmlEmail = htmlEmail + "<th style='width: 35%;'>Product Details</th>";
+			htmlEmail = htmlEmail + "<th class='text-right' style='width: 12%;'>Unit Price</th>";
+			htmlEmail = htmlEmail + "<th class='text-center' style='width: 10%;'>Ordered</th>";
+			htmlEmail = htmlEmail + "<th class='text-center' style='width: 10%;'>Returned</th>";
+			htmlEmail = htmlEmail + "<th class='text-center' style='width: 10%;'>Returning</th>";
+			htmlEmail = htmlEmail + "<th class='text-center' style='width: 10%;'>Remaining</th>";
+			htmlEmail = htmlEmail + "<th class='text-right' style='width: 13%;'>Amount</th>";
+			htmlEmail = htmlEmail + "</tr>";
+			htmlEmail = htmlEmail + "</thead>";
+			htmlEmail = htmlEmail + "<tbody>";
+			
+			itemNum = 1;
+			for each item in itemsProcessed
+			{
+				htmlEmail = htmlEmail + "<tr>";
+				
+				// Product details
+				htmlEmail = htmlEmail + "<td>";
+				htmlEmail = htmlEmail + "<div class='item-name'>" + item.get("name") + "</div>";
+				htmlEmail = htmlEmail + "<div class='item-sku'>SKU: " + item.get("sku") + "</div>";
+				htmlEmail = htmlEmail + "</td>";
+				
+				// Unit price
+				htmlEmail = htmlEmail + "<td class='text-right'>₹" + item.get("rate") + "</td>";
+				
+				// Ordered quantity
+				htmlEmail = htmlEmail + "<td class='text-center'><span class='qty-badge'>" + item.get("quantity_ordered") + "</span></td>";
+				
+				// Already returned quantity
+				htmlEmail = htmlEmail + "<td class='text-center'>" + item.get("quantity_returned") + "</td>";
+				
+				// Returning now (highlighted)
+				htmlEmail = htmlEmail + "<td class='text-center'><span class='qty-badge returning'>" + item.get("quantity_returning") + "</span></td>";
+				
+				// Remaining after return
+				remainingQty = item.get("remaining_after_return");
+				htmlEmail = htmlEmail + "<td class='text-center'>" + remainingQty + "</td>";
+				
+				// Refund amount
+				htmlEmail = htmlEmail + "<td class='text-right'><strong>₹" + item.get("refund_amount") + "</strong></td>";
+				
+				htmlEmail = htmlEmail + "</tr>";
+				
+				itemNum = itemNum + 1;
+			}
+			
+			htmlEmail = htmlEmail + "</tbody>";
+			htmlEmail = htmlEmail + "</table>";
+			
+			// Summary section
+			htmlEmail = htmlEmail + "<div class='summary-section'>";
+			htmlEmail = htmlEmail + "<div class='summary-grid'>";
+			
+			// Left side - financial summary
+			htmlEmail = htmlEmail + "<div>";
+			htmlEmail = htmlEmail + "<div class='summary-item'>";
+			htmlEmail = htmlEmail + "<span class='summary-label'>Subtotal</span>";
+			htmlEmail = htmlEmail + "<span class='summary-value'>₹" + totalRefundAmount + "</span>";
+			htmlEmail = htmlEmail + "</div>";
+			htmlEmail = htmlEmail + "<div class='summary-item total'>";
+			htmlEmail = htmlEmail + "<span class='summary-label'>Total Refund Amount</span>";
+			htmlEmail = htmlEmail + "<span class='summary-value'>₹" + totalRefundAmount + "</span>";
+			htmlEmail = htmlEmail + "</div>";
+			htmlEmail = htmlEmail + "</div>";
+			
+			// Right side - statistics
+			htmlEmail = htmlEmail + "<div class='summary-stats'>";
+			htmlEmail = htmlEmail + "<div class='stat-row'>";
+			htmlEmail = htmlEmail + "<span class='stat-label'>Items Returned</span>";
+			htmlEmail = htmlEmail + "<span class='stat-value'>" + itemsProcessed.size() + "</span>";
+			htmlEmail = htmlEmail + "</div>";
+			if(itemsSkipped.size() > 0)
+			{
+				htmlEmail = htmlEmail + "<div class='stat-row'>";
+				htmlEmail = htmlEmail + "<span class='stat-label'>Items Skipped</span>";
+				htmlEmail = htmlEmail + "<span class='stat-value' style='color: #d97706;'>" + itemsSkipped.size() + "</span>";
+				htmlEmail = htmlEmail + "</div>";
+			}
+			htmlEmail = htmlEmail + "<div class='stat-row'>";
+			htmlEmail = htmlEmail + "<span class='stat-label'>Processing Status</span>";
+			htmlEmail = htmlEmail + "<span class='stat-value' style='color: #10b981;'>Completed</span>";
+			htmlEmail = htmlEmail + "</div>";
+			htmlEmail = htmlEmail + "</div>";
+			
+			htmlEmail = htmlEmail + "</div>";
+			htmlEmail = htmlEmail + "</div>";
+			
+			// Skipped items section (if any)
+			if(itemsSkipped.size() > 0)
+			{
+				htmlEmail = htmlEmail + "<div class='skipped-section'>";
+				htmlEmail = htmlEmail + "<h3 style='color: #856404; font-size: 18px; margin-bottom: 8px;'>⚠️ Items That Could Not Be Returned</h3>";
+				htmlEmail = htmlEmail + "<p style='color: #856404; font-size: 14px; margin-bottom: 16px;'>The following items were excluded from this return:</p>";
+				
+				htmlEmail = htmlEmail + "<table class='skipped-table'>";
+				htmlEmail = htmlEmail + "<thead>";
+				htmlEmail = htmlEmail + "<tr>";
+				htmlEmail = htmlEmail + "<th>Product Name</th>";
+				htmlEmail = htmlEmail + "<th>SKU</th>";
+				htmlEmail = htmlEmail + "<th>Requested</th>";
+				htmlEmail = htmlEmail + "<th>Available</th>";
+				htmlEmail = htmlEmail + "<th>Reason</th>";
+				htmlEmail = htmlEmail + "</tr>";
+				htmlEmail = htmlEmail + "</thead>";
+				htmlEmail = htmlEmail + "<tbody>";
+				
+				for each skipped in itemsSkipped
+				{
+					htmlEmail = htmlEmail + "<tr>";
+					htmlEmail = htmlEmail + "<td>" + skipped.get("name") + "</td>";
+					htmlEmail = htmlEmail + "<td style='font-family: monospace;'>" + skipped.get("sku") + "</td>";
+					htmlEmail = htmlEmail + "<td>" + skipped.get("quantity_requested") + "</td>";
+					htmlEmail = htmlEmail + "<td>" + skipped.get("available") + "</td>";
+					htmlEmail = htmlEmail + "<td><span class='reason-text'>" + skipped.get("reason") + "</span></td>";
+					htmlEmail = htmlEmail + "</tr>";
+				}
+				
+				htmlEmail = htmlEmail + "</tbody>";
+				htmlEmail = htmlEmail + "</table>";
+				htmlEmail = htmlEmail + "</div>";
+			}
+			
+			htmlEmail = htmlEmail + "</div>";
+			
+			// Footer
+			htmlEmail = htmlEmail + "<div class='email-footer'>";
+			htmlEmail = htmlEmail + "<p><strong>Krishi Cress</strong></p>";
+			htmlEmail = htmlEmail + "<p>Automated Sales Return Notification</p>";
+			htmlEmail = htmlEmail + "<div class='divider'></div>";
+			htmlEmail = htmlEmail + "<p>This return has been automatically processed and recorded in Zoho Inventory</p>";
+			htmlEmail = htmlEmail + "<p>View in Zoho: <a href='https://inventory.zoho.in/app#/salesreturns/" + returnId + "' target='_blank'>Open Return #" + returnNumber + "</a></p>";
+			htmlEmail = htmlEmail + "<div class='divider'></div>";
+			htmlEmail = htmlEmail + "<p style='font-size: 11px; color: #718096;'>Generated by Zoho Flow Automation • " + zoho.currentdate.toString("dd MMM yyyy HH:mm:ss") + "</p>";
+			htmlEmail = htmlEmail + "</div>";
+			
+			htmlEmail = htmlEmail + "</div>";
+			htmlEmail = htmlEmail + "</body>";
+			htmlEmail = htmlEmail + "</html>";
+			
+			// Attach email to response
+			response.put("email_message", htmlEmail);
+			response.put("status", "success");
+			response.put("return_number", returnNumber);
+			response.put("return_id", returnId);
+			response.put("send_email", true);
+			response.put("items_processed", itemsProcessed.size());
+			response.put("items_skipped", itemsSkipped.size());
+			response.put("total_refund_amount", totalRefundAmount);
+			
+			info "";
+			info "=== EMAIL GENERATED SUCCESSFULLY ===";
+			info "Email ready to send";
+			
+			return response;
+		}
+		else
+		{
+			// API call failed
+			info "❌ API call failed";
+			info "Error message: " + response.get("message");
+			
+			response.put("status", "failed");
+			response.put("send_email", false);
+			
+			return response;
+		}
+	}
+	catch (e)
+	{
+		info "❌ Exception occurred during API call";
+		info "Exception: " + e.toString();
+		
+		errorResponse = Map();
+		errorResponse.put("code", -1);
+		errorResponse.put("message", "Error creating sales return: " + e.toString());
+		errorResponse.put("status", "error");
+		errorResponse.put("send_email", false);
+		
+		return errorResponse;
+	}
+}

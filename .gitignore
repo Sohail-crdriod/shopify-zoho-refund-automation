@@ -1,0 +1,209 @@
+# Shopify-Zoho Refund Automation .gitignore
+# Protects sensitive data and prevents accidental uploads
+
+# =============================================================================
+# API KEYS & CREDENTIALS (CRITICAL)
+# =============================================================================
+*.key
+*.pem
+*.p12
+*.pfx
+*.cer
+*.crt
+*.cert
+credentials.json
+secrets.json
+config.json
+.env
+.env.local
+.env.*.local
+api_keys.txt
+tokens.txt
+
+# Zoho Specific
+zoho_credentials/
+zoho_tokens/
+*_oauth_token.txt
+*_refresh_token.txt
+
+# Shopify Specific
+shopify_credentials/
+shopify_api_key.txt
+shopify_access_token.txt
+
+# =============================================================================
+# LOGS & TEMPORARY FILES
+# =============================================================================
+*.log
+logs/
+*.tmp
+*.temp
+*.cache
+.cache/
+tmp/
+temp/
+
+# Execution logs
+execution_*.log
+error_*.log
+debug_*.log
+flow_execution_*.json
+
+# =============================================================================
+# IDE & EDITOR FILES
+# =============================================================================
+# Visual Studio Code
+.vscode/
+*.code-workspace
+
+# JetBrains IDEs (IntelliJ, PyCharm, WebStorm, etc.)
+.idea/
+*.iml
+*.iws
+*.ipr
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# Atom
+.atom/
+
+# Vim
+*.swp
+*.swo
+*~
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# =============================================================================
+# OPERATING SYSTEM FILES
+# =============================================================================
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+.directory
+.Trash-*
+
+# =============================================================================
+# BACKUP & ARCHIVE FILES
+# =============================================================================
+*.bak
+*.backup
+*.old
+*.orig
+*.save
+*.swp
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# =============================================================================
+# TEST DATA & MOCK FILES
+# =============================================================================
+test_data/
+mock_data/
+sample_responses/
+*.test.json
+*_test_*.json
+
+# Customer data (MUST BE EXCLUDED)
+customer_data/
+personal_information/
+pii_data/
+
+# =============================================================================
+# NODE MODULES & DEPENDENCIES
+# =============================================================================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# =============================================================================
+# BUILD & DIST FILES
+# =============================================================================
+dist/
+build/
+out/
+target/
+*.min.js
+*.min.css
+
+# =============================================================================
+# DOCUMENTATION DRAFTS
+# =============================================================================
+drafts/
+wip/
+work_in_progress/
+*.draft.md
+TODO.md
+NOTES.md
+
+# =============================================================================
+# SENSITIVE BUSINESS DATA
+# =============================================================================
+# Order data
+orders/
+refunds/
+customer_info/
+
+# Financial data
+invoices/
+payments/
+transactions/
+
+# Analytics
+analytics_data/
+reports/
+*.xlsx
+*.xls
+*.csv
+
+# =============================================================================
+# ZOHO FLOW EXPORTS (May contain sensitive info)
+# =============================================================================
+# Only include sanitized/example versions in repo
+flow_exports/
+*.flow.json
+workflow_exports/
+
+# =============================================================================
+# MISC
+# =============================================================================
+.sass-cache/
+.parcel-cache/
+coverage/
+.nyc_output/
+debug/
+
+# =============================================================================
+# ALLOWED FILES (Explicitly track these)
+# =============================================================================
+# !functions/*.ds (Deluge scripts - OK to include)
+# !workflows/example_*.json (Example/sanitized configs only)
+# !docs/images/*.png (Screenshots - OK to include)
+# !README.md
+# !LICENSE
+# !CONTRIBUTING.md
