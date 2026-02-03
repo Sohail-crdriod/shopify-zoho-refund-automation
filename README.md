@@ -6,7 +6,6 @@
 [![Platform](https://img.shields.io/badge/Platform-Shopify%20%7C%20Zoho-blue?style=for-the-badge)](https://github.com/Sohail-crdriod/shopify-zoho-refund-automation)
 [![Automation](https://img.shields.io/badge/Success%20Rate-99.5%25-brightgreen?style=for-the-badge)](https://github.com/Sohail-crdriod/shopify-zoho-refund-automation)
 [![Time Saved](https://img.shields.io/badge/Time%20Savings-85%25-orange?style=for-the-badge)](https://github.com/Sohail-crdriod/shopify-zoho-refund-automation)
-[![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](./LICENSE)
 
 ---
 
